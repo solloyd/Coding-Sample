@@ -1,0 +1,348 @@
+#Uploaded from R Studio
+
+```{r setup and data}
+#This Markdown file is the continuation of S Lloyd's M.S. Thesis to include the midline round of data collection for the Zambia Clean Cooking Study (ZCCS).  
+#The first part of this file is to merge the full Thesis data (not the data used for analysis, bc this one includes the NAs for the dependent variable) and the midline data in order to expand the sample for analysis.  
+#Next, new descriptive stats are run on social capital and clean cooking tech, modern lighting, WASH, and language.
+
+library(readxl)
+library(dplyr)
+library(arsenal) 
+
+thesis_data_na <- read_excel("~/Desktop/Thesis_Expansion/Thesis_Data.xlsx")   
+     #Thesis data, all NAs included
+
+midline_full_data <- read_excel("~/Desktop/Thesis_Expansion/COVIDphonefinal_nonames_SPSS_setup.xlsx", 
+    sheet = "SPSS_in")
+     #Midline data from Rob Bailis, only sheet with clean, de-identified data "SPSS_in"
+
+
+midline_select_data <- midline_full_data[ , c("A1", "compound", "A6", "A7", "avail", "B9", "B10", "B15", "B16")]  
+     #Selecting only needed columns for analysis
+```
+
+```{r Removing duplicates and recoding column names for midline}
+#The midline data has duplicate hhids, so below is removing them before merging
+midline_select_data <- midline_select_data[!duplicated(midline_select_data$A1), ]
+
+midline_select_data1 <- midline_select_data %>% 
+  rename(
+    hhid = A1,
+    mid_compound = compound,
+    survey_round = A6,
+    mid_status = A7,
+    mid_promoted_SM = B9,
+    mid_adopt_SM = B10,
+    mid_promoted_VL = B15,
+    mid_adopt_VL = B16,
+    )     
+     #changing hhid so it matches the thesis_data_na
+
+
+# Below is quantifying adoption for the midline survey, this will expand the sample by 280 households
+midline_select_data1$mid_adopted =NA
+  
+for(i in 1:nrow(midline_select_data1)){
+  value <- midline_select_data1$mid_adopt_SM[i]
+  if(!is.na(value)){midline_select_data1$mid_adopted[i] <- value}
+}
+
+for(i in 1:nrow(midline_select_data1)){
+  value <- midline_select_data1$mid_adopt_VL[i]
+  if(!is.na(value)){midline_select_data1$mid_adopted[i] <- value}
+}
+
+table(midline_select_data1$mid_adopted)
+
+#Changing thesis_data_na names
+
+thesis_data_na1 <- thesis_data_na %>% 
+  rename(
+    base_adopted = adopted,
+    )     
+
+```
+
+```{r Merging data and adoption variable for new sample}
+
+mid_and_thesis <- left_join(thesis_data_na1, midline_select_data1, by = "hhid")
+
+
+mid_and_thesis <- mid_and_thesis %>% mutate(base_adopted= ifelse(is.na(base_adopted), 99, base_adopted)) %>%
+  mutate(mid_adopted= ifelse(is.na(mid_adopted), 99, mid_adopted)) %>% 
+  mutate(temp = base_adopted + mid_adopted) %>%
+  mutate(full_adoption = ifelse(temp==0,0,ifelse(temp==2,1,ifelse(temp==100,1,ifelse(temp==99,0,ifelse(temp==1,1,99)))))) %>%
+  mutate(full_adoption= ifelse(full_adoption==99,NA,full_adoption))
+
+table(thesis_data_na1$base_adopted)
+table(mid_and_thesis$full_adoption)
+
+#altogether, this adds 87 hhlds to sample
+
+
+#full_adoptionvar <- mid_and_thesis[ , c("hhid", "full_adoption")]
+#write_csv(full_adoptionvar, "full_adoption_variable.csv")
+```
+
+```{r Descriptive stats for new sample}
+
+#Variables for hhld characteristics
+table_one <- tableby(interaction(full_adoption, compound.y) ~ factor(c3_code) + hhld_size + dependency_ratio + factor(mencooking_code) + factor(head_gender_code)  + factor(head_school_code) + head_ageyears.y + head_yrsinlusaka + factor(electricstove_code) + durable_goods + expenditure_energy + expenditure_hygiene + expenditure_allother, data = mid_and_thesis) 
+summary(table_one, title = "Descriptive Stats - Hhld Characteristics")
+
+# Social Capital
+table_two <- tableby(interaction(full_adoption, compound.y) ~ n1_4total + factor(sc_trust) + factor(sc_community) + factor(sc_personal) + factor(sc_hhld_connections), data = mid_and_thesis) 
+summary(table_two, title = "Descriptive Stats - Social Capital")
+
+# Language
+table_three <- tableby(interaction(full_adoption, compound.y) ~ ai9b_mainlanguage, data = mid_and_thesis) 
+summary(table_three, title = "Descriptive Stats - Language")
+
+# WASH Variables
+WASH_labels <- list(
+  c10 = "What is your main drinking water source?",
+  c10a = "Is the drinking water source used only by members of your hhld or shared with other hhlds?",
+  c10b = "Do you treat your drinking water?",
+  c11 = "What type of toilet does your hhld use?",
+  c11a = "Is the toilet only for use by members of your hhld or shared with another hhld?"
+)
+
+table_four <- tableby(interaction(full_adoption, compound.y) ~ c10 + c10a + c10b + c11 + c11a, data = mid_and_thesis)
+summary(table_four, labelTranslations = WASH_labels, title = "Descriptive Stats - WASH")
+
+# Lighting variables
+light_labels <- list(
+  c13 = "What is the main source of lighting in the household during the past 7 days?"
+)
+
+table_four <- tableby(interaction(full_adoption, compound.y) ~ c13, data = mid_and_thesis)
+summary(table_four, labelTranslations = light_labels, title = "Descriptive Stats - Lighting")
+
+colSums(is.na(mid_and_thesis[,2660:2700]))
+```
+
+```{r Recoding the language variable}
+#Code : 0=other & bemba, 1=nyanja, 2=english
+
+mid_and_thesis$lang_code[mid_and_thesis$ai9b_mainlanguage == "other"] <- "aotherbemba"
+mid_and_thesis$lang_code[mid_and_thesis$ai9b_mainlanguage == "bemba"] <- "aotherbemba"
+mid_and_thesis$lang_code[mid_and_thesis$ai9b_mainlanguage == "nyanja"] <- "nyanja"
+mid_and_thesis$lang_code[mid_and_thesis$ai9b_mainlanguage == "english"] <- "english"
+
+table(mid_and_thesis$ai9b_mainlanguage)
+table(mid_and_thesis$lang_code)
+
+# code: prefer english 0=all other, 1=english
+
+mid_and_thesis <- mid_and_thesis %>% mutate(lang_code1 = ifelse(lang_code=="english",0,1))
+table(mid_and_thesis$lang_code)
+table(mid_and_thesis$lang_code1)
+```
+
+```{r Coding infrastructure SC variable}
+#c3_code = Rent=0, Own=1
+table(mid_and_thesis$c3_code)
+
+#Toilet code = Private=0, Shared=1
+mid_and_thesis <- mid_and_thesis %>%
+  mutate(toilet_code = ifelse(c11a == "Private", 0, ifelse(c11a == "Shared", 1, NA)))
+
+
+# SC Infrastructure code=
+     # 0= Rent / Shared toilet
+     # 1= Rent / Private toilet
+     # 2= Own / Shared toilet
+     # 3= Own / Private toilet
+
+mid_and_thesis <- mid_and_thesis %>%
+  mutate(sc_infra = ifelse((c3_code == 0 & toilet_code == 1),0, 
+                           ifelse((c3_code ==0 & toilet_code == 0),1,
+                                  ifelse((c3_code ==1 & toilet_code ==1),2,
+                                         ifelse((c3_code ==1 & toilet_code ==0),3,NA)))))
+
+table(mid_and_thesis$sc_infra)
+
+table_five <- tableby(interaction(full_adoption, compound.y) ~ factor(sc_infra), data = mid_and_thesis)
+summary(table_five, 
+        #labelTranslations = light_labels, 
+        title = "Descriptive Stats - SC Infra")
+
+```
+
+```{r Dropping NAs from desc stats / log model data}
+
+mid_and_thesis_nas <- mid_and_thesis[!is.na(mid_and_thesis$full_adoption),]
+```
+```{r COMPOUND CODES}
+###############################################################
+Kamanga <- subset(mid_and_thesis_nas, A1=="Kamanga")
+
+Matero <- subset(mid_and_thesis_nas, A1=="Matero")
+
+Kalingalinga <- subset(mid_and_thesis_nas, A1=="Kalingalinga")
+Kalingalinga_adopt <- subset(Kalingalinga, full_adoption==1)
+Kalingalinga_nonadopt <- subset(Kalingalinga, full_adoption==0)
+
+Ngombe <- subset(mid_and_thesis_nas, A1=="Ng'ombe")
+Ngombe_adopt <- subset(Ngombe, full_adoption==1)
+Ngombe_nonadopt <- subset(Ngombe, full_adoption==0)
+
+adopt <- subset(mid_and_thesis_nas, full_adoption==1)
+nonadopt <- subset(mid_and_thesis_nas, full_adoption==0)
+
+###############################################################
+# HEAD 
+male_head <- subset(mid_and_thesis_nas, head_gender.y==1)
+adopter_male_head <- subset(male_head, full_adoption==1)
+nonadopt_male_head <- subset(male_head, full_adoption==0)
+
+fem_head <- subset(mid_and_thesis_nas, head_gender.y==2)
+adopter_fem_head <- subset(fem_head, full_adoption==1)
+nonadopt_fem_head <- subset(fem_head, full_adoption==0)
+
+  # Gender by compound
+Kamanga_male_head <- subset(mid_and_thesis_nas, head_gender.y==1)
+Kamanga_fem_head <- subset(Kamanga, head_gender.y==2)
+
+Matero_male_head <- subset(Matero, head_gender.y==1)
+Matero_fem_head <- subset(Matero, head_gender.y==2)
+
+Kaling_male_head <- subset(Kalingalinga, head_gender.y==1)
+Kaling_fem_head <- subset(Kalingalinga, head_gender.y==2)
+
+Kaling_male_adopt_head <- subset(Kalingalinga_adopt, head_gender.y==1)
+Kaling_male_nonadopt_head <- subset(Kalingalinga_nonadopt, head_gender.y==1)
+
+Kaling_fem_adopt_head <- subset(Kalingalinga_adopt, head_gender.y==2)
+Kaling_fem_nonadopt_head <- subset(Kalingalinga_nonadopt, head_gender.y==2)
+
+Ngombe_male_head <- subset(Ngombe, head_gender.y==1)
+Ngombe_fem_head <- subset(Ngombe, head_gender.y==2)
+
+Ngombe_male_adopt_head <- subset(Ngombe_adopt, head_gender.y==1)
+Ngombe_male_nonadopt_head <- subset(Ngombe_nonadopt, head_gender.y==1)
+
+Ngombe_fem_adopt_head <- subset(Ngombe_adopt, head_gender.y==2)
+Ngombe_fem_nonadopt_head <- subset(Ngombe_nonadopt, head_gender.y==2)
+
+```
+
+```{r Desc Stats - Adoption Variable}
+
+table_A <- tableby(compound.y ~ full_adoption, data = mid_and_thesis_nas)
+
+summary(table_A)
+
+```
+
+```{r Desc Stat - SC Table}
+
+table_B <- tableby(interaction(compound.y, full_adoption, head_gender_code) ~ n1_4total + factor(sc_trust) + factor(sc_community) + factor(sc_personal) + factor(sc_hhld_connections), data = mid_and_thesis_nas)
+
+summary(table_B)
+
+table_B_totalmale <- tableby(full_adoption ~ n1_4total + factor(sc_trust) + factor(sc_community) + factor(sc_personal) + factor(sc_hhld_connections), data = fem_head)
+
+summary(table_B_totalmale)
+
+table_B_compound <- tableby(full_adoption ~ n1_4total + factor(sc_trust) + factor(sc_community) + factor(sc_personal) + factor(sc_hhld_connections), data = Kaling_fem_head)
+
+summary(table_B_compound)
+
+########################
+
+table_C <- tableby(interaction(full_adoption, head_gender_code) ~ n1_4total + factor(sc_trust) + factor(sc_community) + factor(sc_personal) + factor(sc_hhld_connections), data = mid_and_thesis_nas)
+
+summary(table_C)
+
+```
+
+```{r Desc Stat - Full Table}
+
+table_D <- tableby(interaction(compound.y, full_adoption) ~ factor(sc_infra) + hhld_size + dependency_ratio + factor(mencooking_code) + head_gender_code + factor(head_school_code) + lang_code1 + head_ageyears.y + head_yrsinlusaka + electricstove_code + durable_goods + expenditure_energy + expenditure_hygiene + expenditure_allother, data = mid_and_thesis_nas)
+
+summary(table_D)
+
+table_D_total <- tableby(full_adoption ~ factor(sc_infra) + hhld_size + dependency_ratio + factor(mencooking_code) + head_gender_code + factor(head_school_code) + lang_code1 + head_ageyears.y + head_yrsinlusaka + electricstove_code + durable_goods + expenditure_energy + expenditure_hygiene + expenditure_allother, data = mid_and_thesis_nas)
+
+summary(table_D_total)
+
+table_D_compound <- tableby(full_adoption ~ factor(sc_infra) + hhld_size + dependency_ratio + factor(mencooking_code) + head_gender_code + factor(head_school_code) + lang_code1 + head_ageyears.y + head_yrsinlusaka + electricstove_code + durable_goods + expenditure_energy + expenditure_hygiene + expenditure_allother, data = Ngombe)
+
+summary(table_D_compound)
+
+########################
+
+table_E <- tableby(full_adoption ~ factor(sc_infra) + hhld_size + dependency_ratio + factor(mencooking_code) + head_gender_code + factor(head_school_code) + head_ageyears.y + lang_code1 + head_yrsinlusaka + electricstove_code + durable_goods + expenditure_energy + expenditure_hygiene + expenditure_allother, data = mid_and_thesis_nas)
+
+summary(table_E)
+
+##################
+
+table_F <- tableby(full_adoption ~ factor(sc_infra), data = mid_and_thesis_nas)
+
+summary(table_F)
+
+
+```
+
+```{r Regression Models - From thesis}
+# Full Sample Model (fit_test5)
+mid_and_thesis_mod1 <- mid_and_thesis
+
+mid_and_thesis_mod1$sc_hhld_connections[mid_and_thesis$sc_hhld_connections==0] <- 1
+
+fullmod_thesis1 <- glm(full_adoption ~ n1_4total + factor(sc_trust) + factor(sc_community) + factor(sc_personal) + factor(sc_hhld_connections) + factor(c3_code) + hhld_size + dependency_ratio + factor(mencooking_code) + factor(head_gender_code)  + factor(head_school_code) + head_ageyears.y + head_yrsinlusaka + factor(electricstove_code) + durable_goods 
+                 #+ expenditure_energy 
+                 + log(1 + expenditure_hygiene) + log(1 + expenditure_allother) #+ factor(pre_post_code)
+                 , data = mid_and_thesis_mod1, family = binomial(link = "logit"))
+
+summary(fullmod_thesis1)
+exp(summary(fullmod_thesis1)$coefficients)
+#vif(fullmod_thesis1)
+
+
+
+# Prospective user model (fit_test5_prospectivecomps)
+data_prospectivecomps <- subset(mid_and_thesis, compound_code==3 | compound_code==4)
+
+data_prospectivecomps_mod1 <- data_prospectivecomps
+data_prospectivecomps_mod1$sc_hhld_connections[data_prospectivecomps$sc_hhld_connections==0] <- 1
+
+prospectivecomps_thesis1 <- glm(full_adoption ~ n1_4total + factor(sc_trust) + factor(sc_community) + factor(sc_personal) + factor(sc_hhld_connections) + factor(c3_code) + hhld_size + dependency_ratio + factor(mencooking_code) + factor(head_gender_code)  + factor(head_school_code) + head_ageyears.y + head_yrsinlusaka + factor(electricstove_code) + durable_goods + expenditure_energy + log(1 + expenditure_hygiene) + log(1 + expenditure_allother) #+ factor(pre_post_code)
+                 , data = data_prospectivecomps_mod1, family = binomial(link = "logit"))
+
+summary(prospectivecomps_thesis1)
+exp(summary(prospectivecomps_thesis1)$coefficients)
+#vif(prospectivecomps_thesis1)
+
+```
+
+```{r Models from thesis - add lang variable and sc_infra}
+
+# Full Sample Model (fit_test5)
+fullmod_thesis3 <- glm(full_adoption ~ n1_4total + factor(sc_trust) + factor(sc_community) + factor(sc_personal) + factor(sc_hhld_connections) + factor(sc_infra) 
+                       #+ factor(c3_code) 
+                       + hhld_size + dependency_ratio + factor(mencooking_code) + factor(head_gender_code)  + factor(head_school_code) + head_ageyears.y + factor(lang_code1) + head_yrsinlusaka + factor(electricstove_code) + durable_goods 
+                 #+ expenditure_energy 
+                 + log(1 + expenditure_hygiene) + log(1 + expenditure_allother) #+ factor(pre_post_code)
+                 , data = mid_and_thesis_mod1, family = binomial(link = "logit"))
+
+summary(fullmod_thesis3)
+exp(summary(fullmod_thesis3)$coefficients)
+#vif(fullmod_thesis3)
+
+
+# Prospective user model (fit_test5_prospectivecomps)
+#data_prospectivecomps <- subset(mid_and_thesis, compound_code==3 | compound_code==4)
+
+prospectivecomps_thesis3 <- glm(full_adoption ~ n1_4total + factor(sc_trust) + factor(sc_community) + factor(sc_personal) + factor(sc_hhld_connections) + factor(sc_infra) 
+                                #+ factor(c3_code) 
+                                + hhld_size + dependency_ratio + factor(mencooking_code) + factor(head_gender_code)  + factor(head_school_code) + head_ageyears.y + factor(lang_code1) + head_yrsinlusaka + factor(electricstove_code) + durable_goods + expenditure_energy + log(1 + expenditure_hygiene) + log(1 + expenditure_allother) #+ factor(pre_post_code)
+                 , data = data_prospectivecomps_mod1, family = binomial(link = "logit"))
+
+summary(prospectivecomps_thesis3)
+exp(summary(prospectivecomps_thesis3)$coefficients)
+#vif(prospectivecomps_thesis3)
+
+```
